@@ -1339,16 +1339,17 @@
           </div>
           <!-- 热搜 (3), 精简版多平台热搜卡片 -->
           <div class="card trending-card">
-            <div class="trending-tabs">
-              <span class="tab-item active" onclick="switchPlatform('baidu')">百度</span>
-              <span class="tab-item" onclick="switchPlatform('weibo')">微博</span>
-              <span class="tab-item" onclick="switchPlatform('google')">谷歌</span>
-              <span class="tab-item" onclick="switchPlatform('douyin')">抖音</span>
-            </div>
-            <!-- 关键容器 -->
-            <div id="trending-content" class="trending-list-v2">
-              <!-- JS 会在这里填充内容 -->
-            </div>
+              <!-- Tabs -->
+              <div class="trending-tabs">
+                  <span class="tab-item active" data-platform="bilibili">B站</span>
+                  <span class="tab-item" data-platform="github">GitHub</span>
+                  <span class="tab-item" data-platform="hackernews">HN</span>
+                  <span class="tab-item" data-platform="v2ex">V2EX</span>
+              </div>
+              <!-- 热榜内容 -->
+              <div id="trending-content" class="trending-list-v2">
+                  <div class="trending-loading">热榜加载中...</div>
+              </div>
           </div>
           <!-- 下班 (4)， 下班/休息状态展示卡片 (已删除弹窗功能) -->
           <div class="card status-card">
