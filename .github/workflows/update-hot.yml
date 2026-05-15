@@ -1,13 +1,15 @@
 name: Update Hot List
 on:
   schedule:
-    # 每6小时更新
-    - cron: "0 */6 * * *"
+    # 每3小时更新
+    - cron: "0 */3 * * *"
   workflow_dispatch:
 jobs:
   update:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
@@ -22,40 +24,38 @@ jobs:
       - name: Create data dir
         run: mkdir -p data
       # =====================================
+      # 财联社
+      # =====================================
+      - name: Fetch CLS
+        run: |
+          curl --silent --show-error --fail --max-time 20 -A "Mozilla/5.0" "https://www.cls.cn/nodeapi/updateTelegraphList?lastTime=0&pageSize=10" -o cls_raw.json
+          jq '.data.roll_data | map({title: .title, url: ("https://www.cls.cn/detail/" + (.id|tostring))})' cls_raw.json > data/cls.json
+      # =====================================
+      # IT之家
+      # =====================================
+      - name: Fetch ITHome
+        run: |
+          curl --silent --show-error --fail --max-time 20 -A "Mozilla/5.0" "https://www.ithome.com/rss/" -o ithome.xml
+          python3 <<EOF
+          import xml.etree.ElementTree as ET
+          import json
+          tree = ET.parse("ithome.xml")
+          root = tree.getroot()
+          items = []
+          for item in root.findall("./channel/item")[:10]:
+              title = item.findtext("title", "")
+              link = item.findtext("link", "")
+              items.append({"title": title, "url": link})
+          with open("data/ithome.json", "w", encoding="utf-8") as f:
+              json.dump(items, f, ensure_ascii=False, indent=2)
+          EOF
+      # =====================================
       # B站热门
       # =====================================
       - name: Fetch Bilibili
         run: |
           curl --silent --show-error --fail --max-time 20 -A "Mozilla/5.0" "https://api.bilibili.com/x/web-interface/popular" -o bilibili_raw.json
           jq '.data.list | map({title: .title, url: ("https://www.bilibili.com/video/" + .bvid)})' bilibili_raw.json > data/bilibili.json
-      # =====================================
-      # HackerNews
-      # =====================================
-      - name: Fetch HackerNews
-        run: |
-          curl --silent --show-error --fail --max-time 20 "https://hacker-news.firebaseio.com/v0/topstories.json" -o hn_ids.json
-          python3 <<EOF
-          import json
-          import requests
-          HEADERS = {
-              "User-Agent": "Mozilla/5.0"
-          }
-          with open("hn_ids.json", "r") as f:
-              ids = json.load(f)[:10]
-          items = []
-          for i in ids:
-              try:
-                  url = f"https://hacker-news.firebaseio.com/v0/item/{i}.json"
-                  data = requests.get(url, headers=HEADERS, timeout=10).json()
-                  items.append({
-                      "title": data.get("title", "No title"),
-                      "url": data.get("url", "https://news.ycombinator.com")
-                  })
-              except Exception as e:
-                  print(e)
-          with open("data/hackernews.json", "w", encoding="utf-8") as f:
-              json.dump(items, f, ensure_ascii=False, indent=2)
-          EOF
       # =====================================
       # V2EX 热门
       # =====================================
