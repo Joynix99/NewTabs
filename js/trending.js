@@ -1,130 +1,281 @@
 /**
- * 🔒 零阻塞・GitHub 托管级沙盒热搜脚本
- * 专门解决静态部署或本地环境下 fetch 导致的跨域失效及天气卡片连坐崩溃问题
+ * 🌍 GitHub Pages 稳定版热搜系统
+ * v4.1 Production (增强健壮性)
  */
+
 (function () {
-    // 1. 离线打底数据：确保拔掉网线或首次加载时，卡片 100% 具备顺畅的点击和视觉填充
+
+    // =========================================
+    // 配置中心
+    // =========================================
+    const CONFIG = {
+        timeout: 8000,
+        cacheDuration: 10 * 60 * 1000,
+        maxItems: 5,
+        defaultPlatform: "baidu",
+        refreshInterval: 15 * 60 * 1000
+    };
+
+    // =========================================
+    // 离线兜底数据
+    // =========================================
     const hotDataLocal = {
         baidu: [
-            { title: "正在连接百度实时网络节点...", url: "https://baidu.com" },
-            { title: "列表如果长时间未刷新，请检查网络", url: "https://baidu.com" },
-            { title: "此组件支持全离线环境下的顺畅切换", url: "https://baidu.com" },
-            { title: "其它核心卡片（天气、倒计时）正常运行中", url: "https://baidu.com" },
-            { title: "不能生成，需要检测网络", url: "https://baidu.com" }
+            { title: "百度热榜加载中...", url: "https://www.baidu.com" },
+            { title: "当前网络可能较慢", url: "https://www.baidu.com" },
+            { title: "系统正在尝试连接实时数据", url: "https://www.baidu.com" },
+            { title: "GitHub Pages 稳定模式运行中", url: "https://www.baidu.com" },
+            { title: "离线模式已启用", url: "https://www.baidu.com" }
         ],
         weibo: [
-            { title: "微博离线：等待获取互联网实时头条...", url: "https://weibo.com" },
-            { title: "建议给打工人增加弹性休假时长", url: "https://weibo.com" },
-            { title: "初夏第一场大范围强降雨即将来袭", url: "https://weibo.com" },
-            { title: "周五临近下班的心情表情大赏", url: "https://weibo.com" },
-            { title: "特朗普访华欢迎宴会", url: "https://weibo.com" }
-            
+            { title: "微博热搜连接中...", url: "https://weibo.com" },
+            { title: "正在获取最新热点", url: "https://weibo.com" },
+            { title: "请稍候", url: "https://weibo.com" },
+            { title: "网络正常后将自动刷新", url: "https://weibo.com" },
+            { title: "系统运行正常", url: "https://weibo.com" }
         ],
-        google: [
-            { title: "知乎离线：等待获取互联网实时头条...", url: "https://news.google.com" },
-            { title: "多模态大模型最新测试版全球发布", url: "https://news.google.com" },
-            { title: "半导体前沿技术演进路线探究", url: "https://news.google.com" },
-            { title: "前沿科技巨头市值创下历史新高", url: "https://news.google.com" },
-            { title: "习近平会见随同美国总统特朗普访华的美国企业家", url: "https://news.google.com" },
+        zhihu: [
+            { title: "知乎热榜连接中...", url: "https://www.zhihu.com" },
+            { title: "正在同步互联网热点", url: "https://www.zhihu.com" },
+            { title: "GitHub 托管模式", url: "https://www.zhihu.com" },
+            { title: "当前为本地保护数据", url: "https://www.zhihu.com" },
+            { title: "等待远程接口响应", url: "https://www.zhihu.com" }
         ],
         douyin: [
-            { title: "抖音离线：等待获取互联网实时头条...", url: "https://douyin.com" },
-            { title: "当搞笑游客遇到外国硬核导游", url: "https://douyin.com" },
-            { title: "超治愈纯音乐夏日配乐曲推荐", url: "https://douyin.com" },
-            { title: "夏日第一根冰棒打卡趣味挑战", url: "https://douyin.com" },
-            { title: "特朗普访华", url: "https://douyin.com" }
+            { title: "抖音热榜连接中...", url: "https://www.douyin.com" },
+            { title: "正在获取实时热视频", url: "https://www.douyin.com" },
+            { title: "请保持网络畅通", url: "https://www.douyin.com" },
+            { title: "静态部署模式已启动", url: "https://www.douyin.com" },
+            { title: "等待云端数据", url: "https://www.douyin.com" }
         ]
     };
 
-    const platformChineseNames = { baidu: "百度", weibo: "微博", google: "谷歌", douyin: "抖音" };
+    const platformChineseNames = {
+        baidu: "百度",
+        weibo: "微博",
+        zhihu: "知乎",
+        douyin: "抖音"
+    };
 
-    /**
-     * 核心安全控制器：由 HTML 中的 Tab 标签进行原生 onclick 调用
-     */
-    window.switchPlatform = function (platform) {
-        console.log("[GitHub沙盒内核] 切换请求:", platform);
-        
-        const container = document.getElementById("trending-content");
+    let currentRequestId = 0;
+
+    // =========================================
+    // 工具函数
+    // =========================================
+    async function fetchWithTimeout(url, timeout) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeout);
+        try {
+            return await fetch(url, { signal: controller.signal, cache: "no-store" });
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    function getCache(platform) {
+        try {
+            const raw = localStorage.getItem(`hot_cache_${platform}`);
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            if (Date.now() - parsed.time > CONFIG.cacheDuration) return null;
+            return parsed.data;
+        } catch {
+            return null;
+        }
+    }
+
+    function setCache(platform, data) {
+        try {
+            localStorage.setItem(`hot_cache_${platform}`, JSON.stringify({ time: Date.now(), data }));
+        } catch { /* 无痕模式忽略 */ }
+    }
+
+    function escapeHTML(str) {
+        return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    function safeUrl(url) {
+        if (!url) return "javascript:void(0)";
+        // 只允许 http/https 协议，防止 javascript: 注入
+        if (url.startsWith("http://") || url.startsWith("https://")) return url;
+        return "javascript:void(0)";
+    }
+
+    function showLoading(container, show = true) {
         if (!container) return;
+        const loadingDiv = container.querySelector(".loading-placeholder");
+        if (show) {
+            if (!loadingDiv) {
+                const div = document.createElement("div");
+                div.className = "loading-placeholder";
+                div.textContent = "⏳ 加载中...";
+                div.style.textAlign = "center";
+                div.style.padding = "20px";
+                div.style.color = "#888";
+                container.innerHTML = "";
+                container.appendChild(div);
+            }
+        } else {
+            if (loadingDiv) loadingDiv.remove();
+        }
+    }
 
-        // A. 瞬间切换顶部 Tab 的激活高亮样式
+    function renderTrendingHTML(container, items) {
+        if (!container) return;
+        container.innerHTML = items.map((item, index) => {
+            const safeTitle = escapeHTML(item.title || "未知标题");
+            const finalUrl = safeUrl(item.url);
+            return `
+                <a href="${finalUrl}"
+                   target="_blank"
+                   rel="noopener noreferrer"
+                   class="trending-row">
+                    <span class="rank-num">${index + 1}</span>
+                    <span class="trend-text">${safeTitle}</span>
+                </a>
+            `;
+        }).join("");
+    }
+
+    function updateTabUI(platform) {
         const tabs = document.querySelectorAll(".tab-item");
-        tabs.forEach((t) => {
-            t.classList.remove("active");
-            if (t.innerText.trim() === platformChineseNames[platform]) {
-                t.classList.add("active");
+        tabs.forEach(tab => {
+            tab.classList.remove("active");
+            if (tab.innerText.trim() === platformChineseNames[platform]) {
+                tab.classList.add("active");
             }
         });
+    }
 
-        // B. 步骤一：0毫秒内优先释放本地离线源，确保界面绝不发生瞬间黑屏，杜绝卡死外部定时器
-        renderTrendingHTML(container, hotDataLocal[platform]);
-
-        // C. 步骤二：使用不触发 CORS 的原生 Script 标签，默默在后台拉取实时数据
-        const oldScript = document.getElementById("github-jsonp-node");
-        if (oldScript) oldScript.remove(); // 及时卸载上一次的请求标签
-
-        // 规范映射 imsyy 开源今日热榜网关的专用子路由
-        const nodeType = platform === 'google' ? 'zhihu' : platform + 'hot';
-
-        const script = document.createElement("script");
-        script.id = "github-jsonp-node";
-        
-        // 挂载支持全域跨域释放的托管级 JSONP 直连中台（要求对方异步回调给下方的全局接收器）
-        script.src = `vvhan.com{nodeType}&callback=onGlobalReceiveHot`;
-        
-        // 核心安全隔离：即使遇到极端网络劫持、接口彻底死机，也只会在底层报无害失败，绝对不抛出致命报错
-        script.onerror = function() {
-            console.warn("[沙盒防火墙] 远程接口未就绪，继续平滑使用打底层，免受影响");
-            script.remove();
-        };
-        
-        document.body.appendChild(script);
-    };
-
-    /**
-     * 3. 核心全局接收器：专门用来拦截从 GitHub Pages/Vercel 网关洗出的真实网络热点
-     */
-    window.onGlobalReceiveHot = function (json) {
+    // =========================================
+    // 核心：获取并渲染热榜
+    // =========================================
+    async function fetchHotData(platform, requestId) {
         const container = document.getElementById("trending-content");
         if (!container) return;
 
-        // 严格解析并清洗来自公网的标准化 JSONP 包结构
-        if (json && json.success === true && Array.isArray(json.data) && json.data.length > 0) {
-            // 精准提取前 4 条以严密贴合卡片分配高度
-            const freshItems = json.data.slice(0, 4).map(item => ({
-                title: item.title,
-                url: item.url || "javascript:void(0);"
-            }));
-            
-            // 实时新闻成功穿透！完美覆盖展示
-            renderTrendingHTML(container, freshItems);
+        // 先检查缓存，如果有则立即渲染（避免闪现本地数据）
+        const cached = getCache(platform);
+        if (cached) {
+            console.log("[热榜] 使用缓存:", platform);
+            renderTrendingHTML(container, cached);
+        } else {
+            // 无缓存时显示本地数据（快速占位）
+            renderTrendingHTML(container, hotDataLocal[platform]);
         }
-        
-        // 阅后即焚：渲染完后自动擦除 Script 标签，防 DOM 污染
-        const currentScript = document.getElementById("github-jsonp-node");
-        if (currentScript) currentScript.remove();
+
+        // 显示加载提示（仅在无缓存且请求较慢时有用）
+        if (!cached) showLoading(container, true);
+        else showLoading(container, false);
+
+        try {
+            const api = `https://api-hot.imsyy.top/${platform}`;
+            console.log("[热榜] 请求:", api);
+
+            const response = await fetchWithTimeout(api, CONFIG.timeout);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+            const json = await response.json();
+
+            // 竞态丢弃
+            if (requestId !== currentRequestId) {
+                console.log("[热榜] 丢弃旧请求");
+                return;
+            }
+
+            // 健壮的解析：优先检查 code === 200
+            let items = [];
+            if (json.code === 200 && Array.isArray(json.data)) {
+                items = json.data;
+            } else if (Array.isArray(json)) {
+                items = json;
+            } else if (json.data && Array.isArray(json.data)) {
+                items = json.data;
+            }
+
+            if (!items.length) throw new Error("空数据或接口异常");
+
+            const normalized = items.slice(0, CONFIG.maxItems).map(item => ({
+                title: item.title || item.name || "未知标题",
+                url: item.url || item.link || ""
+            }));
+
+            // 更新界面
+            renderTrendingHTML(container, normalized);
+            setCache(platform, normalized);
+            console.log("[热榜] 更新成功:", platform);
+        } catch (err) {
+            console.warn("[热榜] 获取失败:", err.message);
+            // 如果已经有缓存，无需再做任何事（缓存已经显示）
+            const hasCache = getCache(platform);
+            if (!hasCache) {
+                // 确保至少显示本地数据（可能已经被覆盖）
+                renderTrendingHTML(container, hotDataLocal[platform]);
+            }
+        } finally {
+            showLoading(container, false);
+        }
+    }
+
+    // =========================================
+    // 切换平台 (对外接口)
+    // =========================================
+    window.switchPlatform = function (platform) {
+        console.log("[热榜] 切换:", platform);
+        currentRequestId++;
+        const requestId = currentRequestId;
+
+        const container = document.getElementById("trending-content");
+        if (!container) return;
+
+        // 立即更新 Tab UI 样式
+        updateTabUI(platform);
+
+        // 立即显示最快可用的内容 (缓存 > 本地兜底)
+        const cached = getCache(platform);
+        if (cached) {
+            renderTrendingHTML(container, cached);
+        } else {
+            renderTrendingHTML(container, hotDataLocal[platform]);
+        }
+
+        // 后台拉取真实数据
+        fetchHotData(platform, requestId);
     };
 
-    /**
-     * 高级模板渲染器
-     */
-    function renderTrendingHTML(container, items) {
-        container.innerHTML = items
-            .map(
-                (item, index) => `
-                <a href="${item.url}" target="_blank" class="trending-row">
-                    <span class="rank-num">${index + 1}</span>
-                    <span class="trend-text">${item.title}</span>
-                </a>
-            `
-            )
-            .join("");
+    // =========================================
+    // 自动刷新 (优化：直接使用缓存，不闪现本地数据)
+    // =========================================
+    function startAutoRefresh() {
+        setInterval(() => {
+            const activeTab = document.querySelector(".tab-item.active");
+            if (!activeTab) return;
+            const text = activeTab.innerText.trim();
+            const platform = Object.keys(platformChineseNames).find(key => platformChineseNames[key] === text);
+            if (platform) {
+                console.log("[热榜] 自动刷新");
+                // 直接调用 fetchHotData 而不是 switchPlatform，避免重新渲染本地占位内容
+                currentRequestId++;
+                const requestId = currentRequestId;
+                fetchHotData(platform, requestId);
+                // 同时确保 Tab 高亮不变，无需更新 UI 文字
+            }
+        }, CONFIG.refreshInterval);
     }
 
-    // 4. 挂载完成，进入初始化流
-    if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", () => window.switchPlatform("baidu"));
-    } else {
-        window.switchPlatform("baidu");
+    // =========================================
+    // 初始化
+    // =========================================
+    function init() {
+        console.log("[热榜系统] 初始化");
+        window.switchPlatform(CONFIG.defaultPlatform);
+        startAutoRefresh();
     }
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", init);
+    } else {
+        init();
+    }
+
 })();
