@@ -1,12 +1,12 @@
 /**
- * 🌍 线上托管级动态天气抓取器 (v2.0)
+ * 🌍 线上托管级动态天气抓取器 (v2.1 修正版)
  * 优先基于用户公网 IP 自动定位城市，并自动切换默认坐标进行防御性保底
  */
 async function updateWeatherByLocation() {
   // --- 🔒 默认兜底配置区域：若 IP 定位失效，将强制使用此处的静态配置 ---
   const defaultCity = "Ho Chi Minh";
-  const defaultLat = "11.12";
-  const defaultLon = "106.57";
+  const defaultLat = "10.76"; // 修正了更准确的胡志明市纬度
+  const defaultLon = "106.66";
 
   // 运行时实际采用的坐标和名称变量
   let finalCity = defaultCity;
@@ -17,15 +17,12 @@ async function updateWeatherByLocation() {
   try {
     console.log("[地理中心] 正在尝试通过公网 IP 嗅探客户端位置...");
     
-    // 使用全球高可用、完全放行跨域的 ip-api 免费公开接口 (设置 3 秒硬性超时)
     const ipController = new AbortController();
     const ipTimeout = setTimeout(() => ipController.abort(), 3000);
 
-    const ipResponse = await fetch("ip-api.com", {
+    // 修正：ip-api 免费版不支持 HTTPS，此处改用支持 HTTPS 且无需 Key 的 ipapi.co
+    const ipResponse = await fetch("https://ipapi.co", {
       signal: ipController.signal
-    }).catch(() => {
-      // 备用 HTTPS 兼容性定位源（防止混合内容拦截）
-      return fetch("ipapi.co");
     });
 
     clearTimeout(ipTimeout);
@@ -35,8 +32,8 @@ async function updateWeatherByLocation() {
       
       // 兼容清洗不同 IP 数据库回传的属性字段
       const detectedCity = ipData.city || ipData.region;
-      const detectedLat = ipData.lat || ipData.latitude;
-      const detectedLon = ipData.lon || ipData.longitude;
+      const detectedLat = ipData.latitude || ipData.lat;
+      const detectedLon = ipData.longitude || ipData.lon;
 
       if (detectedCity && detectedLat && detectedLon) {
         finalCity = detectedCity;
@@ -46,14 +43,13 @@ async function updateWeatherByLocation() {
       }
     }
   } catch (ipError) {
-    // 拦截报错，不允许其向外逃逸卡死主线程
     console.warn("[地理中心] IP 定位服务受阻或超时，已无缝启用默认城市打底:", ipError.message);
   }
 
   // --- 🌦️ 第二阶段：基于确定的坐标请求实时天气 ---
-  // 使用支持公网全域跨域的 allorigins 代理网关包装 wttr.in 接口
-  const targetWeatherUrl = `wttr.in{finalLat},${finalLon}?format=j1`;
-  const proxiedUrl = `allorigins.win{encodeURIComponent(targetWeatherUrl)}`;
+  // 修正：必须使用反引号 `` 拼接变量，并补全 https:// 协议
+  const targetWeatherUrl = `https://wttr.in{finalLat},${finalLon}?format=j1`;
+  const proxiedUrl = `https://allorigins.win{encodeURIComponent(targetWeatherUrl)}`;
 
   try {
     console.log(`[天气内核] 正在请求 ${finalCity} 的最新气象数据...`);
@@ -67,18 +63,26 @@ async function updateWeatherByLocation() {
     const wrapperData = await response.json();
     clearTimeout(weatherTimeout);
 
+    // 解析 allorigins 代理返回的字符串数据
     const data = JSON.parse(wrapperData.contents);
-    const current = data.current_condition;
+    
+    // 修正：wttr.in 的 current_condition 是一个数组
+    const current = data.current_condition[0]; 
     const temp = current.temp_C;
-    const weatherDesc = current.weatherDesc.value.toLowerCase();
-    const dayForecast = data.weather;
+    // 修正：weatherDesc 也是一个包裹在数组里的对象
+    const weatherDesc = current.weatherDesc[0].value.toLowerCase(); 
+    // 修正：weather 是按天预报的数组，今天的数据在索引 0
+    const dayForecast = data.weather[0]; 
 
     // 数据清洗就绪，平滑上屏注入 HTML DOM
     const locationEl = document.getElementById("w-location");
     if (locationEl) locationEl.innerText = finalCity;
 
-    document.getElementById("w-temp-now").innerText = `${temp}°`;
-    document.getElementById("w-range").innerText = `${dayForecast.maxtempC}° / ${dayForecast.mintempC}°`;
+    const tempNowEl = document.getElementById("w-temp-now");
+    if (tempNowEl) tempNowEl.innerText = `${temp}°`;
+
+    const rangeEl = document.getElementById("w-range");
+    if (rangeEl) rangeEl.innerText = `${dayForecast.maxtempC}° / ${dayForecast.mintempC}°`;
 
     // 气象语义图标智能映射
     let statusText = "多云";
@@ -102,8 +106,12 @@ async function updateWeatherByLocation() {
       iconCode = "104";
     }
 
-    document.getElementById("w-desc").innerText = statusText;
-    document.getElementById("w-icon").src = `codelife.cc{iconCode}-fill.svg`;
+    const descEl = document.getElementById("w-desc");
+    if (descEl) descEl.innerText = statusText;
+
+    const iconEl = document.getElementById("w-icon");
+    // 修正：补全图标的完整 URL 协议与路径
+    if (iconEl) iconEl.src = `https://jsdelivr.net{iconCode}.png`; 
     
     console.log(`[天气内核] ${finalCity} 天气同步成功。当前气温: ${temp}°C`);
 
@@ -114,15 +122,22 @@ async function updateWeatherByLocation() {
     const locationEl = document.getElementById("w-location");
     if (locationEl) locationEl.innerText = defaultCity;
 
-    document.getElementById("w-temp-now").innerText = "28°";
-    document.getElementById("w-desc").innerText = "多云";
-    document.getElementById("w-range").innerText = "32° / 24°";
-    document.getElementById("w-icon").src = `codelife.cc`;
+    const tempNowEl = document.getElementById("w-temp-now");
+    if (tempNowEl) tempNowEl.innerText = "28°";
+
+    const descEl = document.getElementById("w-desc");
+    if (descEl) descEl.innerText = "多云";
+
+    const rangeEl = document.getElementById("w-range");
+    if (rangeEl) rangeEl.innerText = "32° / 24°";
+    
+    const iconEl = document.getElementById("w-icon");
+    if (iconEl) iconEl.src = ""; // 提供一个空白或本地占位图
   }
 }
 
 // 网页框架载入后即刻启动首次天气自动对齐
-updateWeatherByLocation();
+document.addEventListener("DOMContentLoaded", updateWeatherByLocation);
 
-// 每隔 30 分钟在后台静默运行一次位置与天气校准，不影响倒计时卡片和热搜卡片
+// 每隔 30 分钟在后台静默运行一次位置与天气校准
 setInterval(updateWeatherByLocation, 1800000);
