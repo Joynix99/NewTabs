@@ -12,7 +12,11 @@
     {n: "远景论坛", u: "https://bbs.pcbeta.com", icon: "icons/pcbeta.svg"},
     {n: "明经通道", u: "https://bbs.mjtd.com", icon: "icons/mjtd.png"}, 
     {n: "CSDN", u: "https://csdn.net", icon: "icons/csdn.svg"}, 
-    {n: "恩山无线论坛", u: "https://right.com.cn", icon: "icons/right.ico"}
+    {n: "恩山无线论坛", u: "https://right.com.cn", icon: "icons/right.ico"},
+    {n: "谷歌地图", u: "https://maps.google.com", icon: "icons/google-map.svg"}, 
+    {n: "百度地图", u: "https://map.baidu.com", icon: "icons/map-baidu.svg"}, 
+    {n: "高德地图", u: "https://www.amap.com", icon: "icons/amap.svg"}, 
+    {n: "Google 地球", u: "https://earth.google.com", icon: "icons/earth.webp"}
   ];
 
   const bookmarkData = {
