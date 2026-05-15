@@ -1,234 +1,96 @@
 /**
- * 🌍 Hot Trending System
- * v6 Production Ultimate
- * ChatGpt DeepSeek GoogleAI
- * GitHub Pages / Vercel / Netlify
+ * 🔥 GitHub Pages 热榜稳定版 v3.0
+ * 多代理自动切换 + 防封 + 缓存 + 熔断
  */
 
 (function () {
 
-    // 防止 SPA 重复初始化
-    if (window.__HOT_SYSTEM_INITIALIZED__) {
-        console.warn("[热榜] 系统已初始化");
-        return;
-    }
-
-    window.__HOT_SYSTEM_INITIALIZED__ = true;
-
-    // =====================================================
-    // 配置中心
-    // =====================================================
+    // =========================
+    // 配置
+    // =========================
     const CONFIG = {
-
-        timeout: 8000,
-
-        refreshInterval: 15 * 60 * 1000,
-
-        cacheDuration: 10 * 60 * 1000,
-
+        timeout: 10000,
+        cacheDuration: 15 * 60 * 1000,
+        refreshInterval: 30 * 60 * 1000,
         maxItems: 5,
-
-        defaultPlatform: "baidu",
-
-        // API 熔断时间
-        circuitBreakerDuration: 10 * 60 * 1000,
-
-        // API 连续失败次数
-        maxFailures: 3
+        proxyCooldown: 5 * 60 * 1000
     };
 
-    // =====================================================
-    // 本地数据
-    // =====================================================
-    const hotDataLocal = {
+    // =========================
+    // 平台白名单
+    // =========================
+    const VALID_PLATFORMS = [
+        "baidu",
+        "weibo",
+        "zhihu",
+        "douyin"
+    ];
 
-        baidu: [
-            { title: "百度热榜连接中...", url: "https://www.baidu.com" },
-            { title: "正在尝试连接实时数据", url: "https://www.baidu.com" },
-            { title: "GitHub Pages 稳定模式运行中", url: "https://www.baidu.com" },
-            { title: "系统运行正常", url: "https://www.baidu.com" },
-            { title: "等待网络响应", url: "https://www.baidu.com" }
-        ],
+    // =========================
+    // 多代理池
+    // =========================
+    const PROXIES = [
 
-        weibo: [
-            { title: "微博热搜连接中...", url: "https://weibo.com" },
-            { title: "正在获取实时热点", url: "https://weibo.com" },
-            { title: "网络恢复后将自动更新", url: "https://weibo.com" },
-            { title: "当前为离线保护模式", url: "https://weibo.com" },
-            { title: "系统运行正常", url: "https://weibo.com" }
-        ],
-
-        zhihu: [
-            { title: "知乎热榜连接中...", url: "https://www.zhihu.com" },
-            { title: "正在同步互联网热点", url: "https://www.zhihu.com" },
-            { title: "等待远程 API 响应", url: "https://www.zhihu.com" },
-            { title: "静态部署保护模式", url: "https://www.zhihu.com" },
-            { title: "系统正常运行", url: "https://www.zhihu.com" }
-        ],
-
-        douyin: [
-            { title: "抖音热榜连接中...", url: "https://www.douyin.com" },
-            { title: "正在获取实时热视频", url: "https://www.douyin.com" },
-            { title: "云端同步中", url: "https://www.douyin.com" },
-            { title: "请保持网络畅通", url: "https://www.douyin.com" },
-            { title: "系统运行正常", url: "https://www.douyin.com" }
-        ]
-    };
-
-    // =====================================================
-    // 平台名
-    // =====================================================
-    const platformChineseNames = {
-        baidu: "百度",
-        weibo: "微博",
-        zhihu: "知乎",
-        douyin: "抖音"
-    };
-
-    // =====================================================
-    // API 列表
-    // =====================================================
-    const API_LIST = [
-
+        // allorigins
         {
-            name: "uapis",
-            url: (platform) =>
-                `https://uapis.cn/api/misc/hotboard?type=${platform}&limit=${CONFIG.maxItems}`,
-
-            parse: (json) => {
-
-                if (Array.isArray(json)) {
-
-                    return json.slice(0, CONFIG.maxItems).map(item => ({
-                        title: item.title || item.name || "未知标题",
-                        url: item.url || item.link || ""
-                    }));
-                }
-
-                return null;
+            name: "allorigins",
+            build: target =>
+                `https://api.allorigins.win/get?url=${encodeURIComponent(target)}`,
+            parse: async res => {
+                const json = await res.json();
+                return JSON.parse(json.contents);
             }
         },
 
+        // corsproxy
         {
-            name: "52vmy",
+            name: "corsproxy",
+            build: target =>
+                `https://corsproxy.io/?${encodeURIComponent(target)}`,
+            parse: async res => {
+                return await res.json();
+            }
+        },
 
-            url: (platform) =>
-                `https://api.52vmy.cn/api/wl/hot?type=${platform}`,
-
-            parse: (json) => {
-
-                if (
-                    json &&
-                    json.code === 200 &&
-                    Array.isArray(json.data)
-                ) {
-
-                    return json.data
-                        .slice(0, CONFIG.maxItems)
-                        .map(item => ({
-
-                            title: item.title || "未知标题",
-
-                            url: item.url || ""
-                        }));
-                }
-
-                return null;
+        // codetabs
+        {
+            name: "codetabs",
+            build: target =>
+                `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(target)}`,
+            parse: async res => {
+                return await res.json();
             }
         }
     ];
 
-    // =====================================================
-    // API 健康状态
-    // =====================================================
-    const apiHealth = {};
+    // =========================
+    // 熔断记录
+    // =========================
+    const proxyFailures = {};
 
-    API_LIST.forEach(api => {
+    // =========================
+    // fallback
+    // =========================
+    const FALLBACK_DATA = {
+        baidu: [
+            { title: "百度热榜加载中...", url: "https://www.baidu.com" }
+        ],
+        weibo: [
+            { title: "微博热搜加载中...", url: "https://weibo.com" }
+        ],
+        zhihu: [
+            { title: "知乎热榜加载中...", url: "https://www.zhihu.com" }
+        ],
+        douyin: [
+            { title: "抖音热榜加载中...", url: "https://www.douyin.com" }
+        ]
+    };
 
-        apiHealth[api.name] = {
+    // =========================
+    // 工具函数
+    // =========================
 
-            failures: 0,
-
-            disabledUntil: 0
-        };
-    });
-
-    // =====================================================
-    // 全局状态
-    // =====================================================
-    let currentAbortController = null;
-
-    let currentRequestId = 0;
-
-    // =====================================================
-    // 超时 fetch
-    // =====================================================
-    async function fetchWithTimeout(url, timeout, signal) {
-
-        const controller = new AbortController();
-
-        const timer = setTimeout(() => {
-            controller.abort();
-        }, timeout);
-
-        try {
-
-            const response = await fetch(url, {
-                signal: signal || controller.signal,
-                cache: "no-store"
-            });
-
-            return response;
-
-        } finally {
-
-            clearTimeout(timer);
-        }
-    }
-
-    // =====================================================
-    // 缓存
-    // =====================================================
-    function getCache(platform) {
-
-        try {
-
-            const raw =
-                localStorage.getItem(`hot_cache_${platform}`);
-
-            if (!raw) return null;
-
-            const parsed = JSON.parse(raw);
-
-            return parsed.data;
-
-        } catch {
-
-            return null;
-        }
-    }
-
-    function setCache(platform, data) {
-
-        try {
-
-            localStorage.setItem(
-                `hot_cache_${platform}`,
-
-                JSON.stringify({
-                    time: Date.now(),
-                    data
-                })
-            );
-
-        } catch {}
-    }
-
-    // =====================================================
-    // HTML 转义
-    // =====================================================
     function escapeHTML(str = "") {
-
         return str
             .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")
@@ -236,204 +98,325 @@
             .replace(/"/g, "&quot;");
     }
 
-    // =====================================================
-    // URL 安全
-    // =====================================================
     function safeUrl(url) {
+        try {
+            const u = new URL(url);
 
-        if (!url) {
+            if (
+                u.protocol === "http:" ||
+                u.protocol === "https:"
+            ) {
+                return u.href;
+            }
+
+            return "javascript:void(0)";
+
+        } catch {
             return "javascript:void(0)";
         }
-
-        if (
-            url.startsWith("https://") ||
-            url.startsWith("http://")
-        ) {
-
-            return url;
-        }
-
-        return "javascript:void(0)";
     }
 
-    // =====================================================
-    // 渲染
-    // =====================================================
-    function renderTrendingHTML(container, items) {
+    // =========================
+    // 缓存
+    // =========================
+    const cache = {
 
-        if (!container) return;
+        get(key) {
+            try {
 
-        container.innerHTML = items.map((item, index) => {
+                const raw = localStorage.getItem(key);
 
-            const safeTitle =
-                escapeHTML(item.title);
+                if (!raw) return null;
 
-            const finalUrl =
-                safeUrl(item.url);
-
-            return `
-                <a href="${finalUrl}"
-                   target="_blank"
-                   rel="noopener noreferrer"
-                   class="trending-row">
-
-                    <span class="rank-num">
-                        ${index + 1}
-                    </span>
-
-                    <span class="trend-text">
-                        ${safeTitle}
-                    </span>
-
-                </a>
-            `;
-
-        }).join("");
-    }
-
-    // =====================================================
-    // 更新 tab
-    // =====================================================
-    function updateTabUI(platform) {
-
-        document
-            .querySelectorAll(".tab-item")
-            .forEach(tab => {
-
-                tab.classList.remove("active");
+                const data = JSON.parse(raw);
 
                 if (
-                    tab.innerText.trim() ===
-                    platformChineseNames[platform]
+                    Date.now() - data.time >
+                    CONFIG.cacheDuration
                 ) {
+                    return null;
+                }
 
-                    tab.classList.add("active");
+                return data.value;
+
+            } catch {
+                return null;
+            }
+        },
+
+        set(key, value) {
+
+            try {
+
+                localStorage.setItem(
+                    key,
+                    JSON.stringify({
+                        time: Date.now(),
+                        value
+                    })
+                );
+
+            } catch {}
+        }
+    };
+
+    // =========================
+    // fetch timeout
+    // =========================
+    async function fetchWithTimeout(url) {
+
+        const controller = new AbortController();
+
+        const id = setTimeout(() => {
+            controller.abort();
+        }, CONFIG.timeout);
+
+        try {
+
+            return await fetch(url, {
+                signal: controller.signal,
+
+                headers: {
+                    "Accept": "application/json,text/plain,*/*"
                 }
             });
-    }
 
-    // =====================================================
-    // API 熔断检查
-    // =====================================================
-    function isApiAvailable(apiName) {
-
-        const health = apiHealth[apiName];
-
-        return Date.now() > health.disabledUntil;
-    }
-
-    function markApiFailure(apiName) {
-
-        const health = apiHealth[apiName];
-
-        health.failures++;
-
-        if (
-            health.failures >= CONFIG.maxFailures
-        ) {
-
-            health.disabledUntil =
-                Date.now() +
-                CONFIG.circuitBreakerDuration;
-
-            console.warn(
-                `[熔断] API ${apiName} 已熔断`
-            );
+        } finally {
+            clearTimeout(id);
         }
     }
 
-    function markApiSuccess(apiName) {
+    // =========================
+    // 获取数据
+    // =========================
+    async function fetchHotList(platform) {
 
-        apiHealth[apiName].failures = 0;
+        const target =
+            "https://tenapi.cn/v2/hotlist";
 
-        apiHealth[apiName].disabledUntil = 0;
-    }
+        let lastError = null;
 
-    // =====================================================
-    // 获取热榜
-    // =====================================================
-    async function tryFetchHotList(platform, signal) {
+        for (const proxy of PROXIES) {
 
-        for (const api of API_LIST) {
+            // 熔断判断
+            const failTime =
+                proxyFailures[proxy.name];
 
-            // 熔断
-            if (!isApiAvailable(api.name)) {
-
-                console.warn(
-                    `[熔断] 跳过 API ${api.name}`
-                );
-
+            if (
+                failTime &&
+                Date.now() - failTime <
+                CONFIG.proxyCooldown
+            ) {
                 continue;
             }
 
             try {
 
                 const url =
-                    api.url(platform);
+                    proxy.build(target);
 
                 console.log(
-                    `[热榜] 请求 ${api.name}`,
-                    url
+                    "[热榜] 尝试代理:",
+                    proxy.name
                 );
 
-                const response =
-                    await fetchWithTimeout(
-                        url,
-                        CONFIG.timeout,
-                        signal
+                const res =
+                    await fetchWithTimeout(url);
+
+                if (!res.ok) {
+                    throw new Error(
+                        `HTTP ${res.status}`
                     );
-
-                // Content-Type 校验
-                const contentType =
-                    response.headers.get("content-type") || "";
-
-                if (
-                    !contentType.includes("application/json")
-                ) {
-
-                    throw new Error("返回非 JSON");
                 }
 
                 const json =
-                    await response.json();
+                    await proxy.parse(res);
 
-                const normalized =
-                    api.parse(json);
-
+                // 数据结构校验
                 if (
-                    normalized &&
-                    normalized.length
+                    !json ||
+                    json.code !== 200 ||
+                    !json.data ||
+                    !Array.isArray(json.data[platform])
                 ) {
-
-                    markApiSuccess(api.name);
-
-                    return normalized;
+                    throw new Error(
+                        "数据结构异常"
+                    );
                 }
 
-                throw new Error("空数据");
+                const items =
+                    json.data[platform]
+                        .slice(0, CONFIG.maxItems)
+                        .map(item => ({
+                            title:
+                                item.title ||
+                                "未知标题",
+
+                            url:
+                                item.url ||
+                                item.link ||
+                                ""
+                        }));
+
+                if (!items.length) {
+                    throw new Error(
+                        "空数据"
+                    );
+                }
+
+                console.log(
+                    "[热榜] 成功:",
+                    proxy.name
+                );
+
+                return items;
 
             } catch (err) {
 
-                if (err.name === "AbortError") {
-                    throw err;
-                }
-
                 console.warn(
-                    `[热榜] API ${api.name} 失败`,
+                    "[热榜] 代理失败:",
+                    proxy.name,
                     err.message
                 );
 
-                markApiFailure(api.name);
+                proxyFailures[proxy.name] =
+                    Date.now();
+
+                lastError = err;
             }
         }
 
-        throw new Error("所有 API 不可用");
+        throw lastError || new Error("全部代理失败");
     }
 
-    // =====================================================
-    // 拉取数据
-    // =====================================================
-    async function fetchHotData(platform) {
+    // =========================
+    // 渲染
+    // =========================
+    function renderHotList(container, items) {
+
+        if (!container) return;
+
+        if (
+            !Array.isArray(items) ||
+            !items.length
+        ) {
+
+            container.innerHTML =
+                `<div class="trending-row">
+                    暂无热榜数据
+                </div>`;
+
+            return;
+        }
+
+        container.innerHTML =
+            items.map((item, idx) => `
+
+                <a
+                    href="${safeUrl(item.url)}"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="trending-row"
+                >
+                    <span class="rank-num">
+                        ${idx + 1}
+                    </span>
+
+                    <span class="trend-text">
+                        ${escapeHTML(item.title)}
+                    </span>
+                </a>
+
+            `).join("");
+    }
+
+    // =========================
+    // 请求锁
+    // =========================
+    let loading = false;
+
+    let currentRequestId = 0;
+
+    // =========================
+    // 加载热榜
+    // =========================
+    async function loadHotList(
+        platform,
+        container,
+        requestId
+    ) {
+
+        const cacheKey =
+            `hot_${platform}`;
+
+        // 立即显示缓存
+        const cached =
+            cache.get(cacheKey);
+
+        if (cached) {
+            renderHotList(
+                container,
+                cached
+            );
+        } else {
+            renderHotList(
+                container,
+                FALLBACK_DATA[platform]
+            );
+        }
+
+        // 避免并发
+        if (loading) return;
+
+        loading = true;
+
+        try {
+
+            const fresh =
+                await fetchHotList(platform);
+
+            if (
+                requestId !== currentRequestId
+            ) {
+                return;
+            }
+
+            cache.set(cacheKey, fresh);
+
+            renderHotList(
+                container,
+                fresh
+            );
+
+        } catch (err) {
+
+            console.warn(
+                "[热榜] 加载失败:",
+                err.message
+            );
+
+        } finally {
+
+            loading = false;
+        }
+    }
+
+    // =========================
+    // 切换平台
+    // =========================
+    window.switchPlatform =
+        function (platform) {
+
+        if (
+            !VALID_PLATFORMS.includes(platform)
+        ) {
+            platform = "baidu";
+        }
+
+        currentRequestId++;
+
+        const rid =
+            currentRequestId;
 
         const container =
             document.getElementById(
@@ -442,167 +425,99 @@
 
         if (!container) return;
 
-        // 真正取消旧请求
-        if (currentAbortController) {
+        document
+            .querySelectorAll(
+                ".tab-item[data-platform]"
+            )
+            .forEach(btn => {
 
-            currentAbortController.abort();
-        }
-
-        currentAbortController =
-            new AbortController();
-
-        const signal =
-            currentAbortController.signal;
-
-        currentRequestId++;
-
-        const requestId =
-            currentRequestId;
-
-        // stale-while-revalidate
-        const cache =
-            getCache(platform);
-
-        if (cache) {
-
-            renderTrendingHTML(
-                container,
-                cache
-            );
-
-        } else {
-
-            renderTrendingHTML(
-                container,
-                hotDataLocal[platform]
-            );
-        }
-
-        try {
-
-            const normalized =
-                await tryFetchHotList(
-                    platform,
-                    signal
+                btn.classList.toggle(
+                    "active",
+                    btn.dataset.platform === platform
                 );
+            });
 
-            if (
-                requestId !== currentRequestId
-            ) {
-
-                return;
-            }
-
-            renderTrendingHTML(
-                container,
-                normalized
-            );
-
-            setCache(
-                platform,
-                normalized
-            );
-
-            console.log(
-                "[热榜] 更新成功"
-            );
-
-        } catch (err) {
-
-            if (
-                err.name === "AbortError"
-            ) {
-
-                console.log(
-                    "[热榜] 请求已取消"
-                );
-
-                return;
-            }
-
-            console.error(
-                "[热榜] 获取失败",
-                err.message
-            );
-        }
-    }
-
-    // =====================================================
-    // 切换平台
-    // =====================================================
-    window.switchPlatform = function (platform) {
-
-        console.log(
-            "[热榜] 切换:",
-            platform
+        loadHotList(
+            platform,
+            container,
+            rid
         );
-
-        updateTabUI(platform);
-
-        fetchHotData(platform);
     };
 
-    // =====================================================
+    // =========================
     // 自动刷新
-    // =====================================================
+    // =========================
     function startAutoRefresh() {
 
         setInterval(() => {
 
-            // 页面隐藏时暂停
-            if (document.hidden) {
-
-                return;
-            }
-
-            const activeTab =
+            const active =
                 document.querySelector(
-                    ".tab-item.active"
+                    ".tab-item.active[data-platform]"
                 );
 
-            if (!activeTab) return;
-
-            const text =
-                activeTab.innerText.trim();
+            if (!active) return;
 
             const platform =
-                Object.keys(
-                    platformChineseNames
-                ).find(
-                    key =>
-                        platformChineseNames[key]
-                        === text
-                );
+                active.dataset.platform;
 
             if (platform) {
 
                 console.log(
-                    "[热榜] 自动刷新"
+                    "[热榜] 自动刷新",
+                    platform
                 );
 
-                fetchHotData(platform);
+                window.switchPlatform(
+                    platform
+                );
             }
 
         }, CONFIG.refreshInterval);
     }
 
-    // =====================================================
+    // =========================
     // 初始化
-    // =====================================================
+    // =========================
     function init() {
 
-        console.log(
-            "[热榜系统] v6 初始化"
-        );
+        document
+            .querySelectorAll(
+                ".tab-item[data-platform]"
+            )
+            .forEach(btn => {
+
+                if (
+                    btn.dataset.bound
+                ) return;
+
+                btn.dataset.bound = "1";
+
+                btn.addEventListener(
+                    "click",
+                    () => {
+
+                        const platform =
+                            btn.dataset.platform;
+
+                        window.switchPlatform(
+                            platform
+                        );
+                    }
+                );
+            });
 
         window.switchPlatform(
-            CONFIG.defaultPlatform
+            "baidu"
         );
 
         startAutoRefresh();
+
+        console.log(
+            "[热榜系统] v3 初始化完成"
+        );
     }
 
-    // DOM Ready
     if (
         document.readyState ===
         "loading"
