@@ -25,7 +25,12 @@
       {n: "三维家",u: "https://3vjia.com",icon: "icons/3vjia.svg"},
       {n: "晨丰拆单",u: "https://ruixinjie.com",icon: "icons/cfcad.jpg"},
       {n: "花瓣网",u: "https://huaban.com",icon: "icons/huaban.svg"},
-      {n: "剪影",u: "https://capcut.com",icon: "icons/capcut.svg"}
+      {n: "剪影",u: "https://capcut.com",icon: "icons/capcut.svg"},
+      {n: "Word",u: "https://word.new",icon: "icons/Word.svg"},
+      {n: "Excel",u: "https://excel.new",icon: "icons/Excel.svg"},
+      {n: "PowerPoint",u: "https://ppt.new",icon: "icons/PowerPoint.svg"},
+      {n: "Outlook",u: "https://live.com",icon: "icons/outolook.svg"},
+      {n: "OneNote",u: "https://onenote.new",icon: "icons/onenote.svg"}
     ],
     ai: [
       {n: "deepseek",u: "https://deepseek.com",icon: "icons/deepseek.svg"},
