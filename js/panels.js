@@ -57,7 +57,7 @@
       {n: "WikiHow",u: "https://www.wikihow.com",icon: "icons/wikihow.svg"},
       {n: "云课堂",u: "https://study.163.com",icon: "icons/study163.svg"},
       {n: "菁优网",u: "http://www.jyeoo.com",icon: "icons/jyeoo.svg"}, 
-      {n: "看雪",u: "https://ctf.kanxue.com/",icon: "icons/kanxuelogo.png"},
+      {n: "看雪",u: "https://ctf.kanxue.com/",icon: "icons/kanxue.svg"},
       {n: "chiphell",u: "https://www.chiphell.com",icon: "icons/chiphell.png"},
       {n: "Stack Overflow",u: "https://stackoverflow.com",icon: "icons/stackoverflow.svg"},
       {n: "博客园",u: "https://www.cnblogs.com",icon: "icons/cnblogs.svg"},
