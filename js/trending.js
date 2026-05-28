@@ -38,17 +38,18 @@
     // =====================================================
     const PLATFORM_MAP = {
         bilibili: { name: "B站", file: "./data/bilibili.json" },
-        github: { name: "GitHub", file: "./data/github.json" },
-        hackernews: { name: "HackerNews", file: "./data/hackernews.json" },
+        github: { name: "", file: "./data/github.json" },
+        hackernews: { name: "", file: "./data/hackernews.json" },
         v2ex: { name: "V2EX", file: "./data/v2ex.json" }
     };
     // =====================================================
     // fallback 数据
     // =====================================================
     const FALLBACK_DATA = {
+    const FALLBACK_DATA = {
+        cls: [{ title: "财联社资讯加载中...", url: "https://www.cls.cn" }],
+        ithome: [{ title: "IT之家资讯加载中...", url: "https://www.ithome.com" }],
         bilibili: [{ title: "B站热门加载中...", url: "https://www.bilibili.com" }],
-        github: [{ title: "GitHub Trending 加载中...", url: "https://github.com/trending" }],
-        hackernews: [{ title: "HackerNews 加载中...", url: "https://news.ycombinator.com" }],
         v2ex: [{ title: "V2EX 热门加载中...", url: "https://www.v2ex.com" }]
     };
     // =====================================================
