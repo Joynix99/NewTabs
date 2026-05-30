@@ -60,7 +60,7 @@
 .kimi-icon-wrapper[data-url*="dribbble"]      { background: #ea4c89 !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
 .kimi-icon-wrapper[data-url*="huaban"]        { background: #CF3D35 !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
 .kimi-icon-wrapper[data-url*="mail.163.com"]  { background: #E8011E !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
-.kimi-icon-wrapper[data-url*="gitee"]         { background: #24292e !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+.kimi-icon-wrapper[data-url*="gitee"]         { background: #C71D23 !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
 .kimi-icon-wrapper[data-url*="zhihu"]         { background: #006CFF !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
 .kimi-icon-wrapper[data-url*="xiaohongshu"]   { background: #FF2442 !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
 .kimi-icon-wrapper[data-url*="taobao"]        { background: #FF5C00 !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
@@ -70,6 +70,12 @@
 .kimi-icon-wrapper[data-url*="stackoverflow"] { background: #444444 !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
 .kimi-icon-wrapper[data-url*="jyeoo"]         { background: #008AFB !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
 .kimi-icon-wrapper[data-url*="jot.ysepan.com"] { background: #2B3A4A !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+.kimi-icon-wrapper[data-url*="meituan"]       { background: #FFD100 !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+.kimi-icon-wrapper[data-url*="dianping"]      { background: #FF6633 !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+.kimi-icon-wrapper[data-url*="goofish"]       { background: #FFE60F !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+.kimi-icon-wrapper[data-url*="zhaopin"]       { background: #0731F8 !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+.kimi-icon-wrapper[data-url*="tujia"]         { background: #FF6D17 !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+.kimi-icon-wrapper[data-url*="ke.com"]        { background: #3072F6 !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
 
 /* 天池专属定制 */
 .kimi-icon-wrapper[data-url*="tianchi.aliyun.com"] { 
