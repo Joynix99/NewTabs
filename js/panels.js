@@ -88,7 +88,11 @@
       {n: "起点",u: "https://qidian.com",icon: "icons/qidian.svg"},
       {n: "番茄",u: "https://fanqienovel.com",icon: "icons/fanqienovel.svg"},
       {n: "飞卢",u: "https://faloo.com",icon: "icons/faloo.svg"},
-      {n: "七猫",u: "https://qimao.com",icon: "icons/qimao.svg"}
+      {n: "七猫",u: "https://qimao.com",icon: "icons/qimao.svg"},
+      {n: "美团",u: "https://www.meituan.com",icon: "icons/meituan.svg"},
+      {n: "大众点评",u: "https://www.dianping.com",icon: "icons/dianping.svg"}, 
+      {n: "闲鱼",u: "https://www.goofish.com",icon: "icons/goofish.svg"}, 
+      {n: "58同城",u: "https://www.58.com",icon: "icons/58.svg"}
     ],
     disk: [
       {n: "百度网盘",u: "https://pan.baidu.com",icon: "icons/baidupan.svg"},
