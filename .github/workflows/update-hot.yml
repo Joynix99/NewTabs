@@ -10,14 +10,12 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       # =====================================
-      # Checkout
+      # Checkout（已升级至 v5，完美原生支持 Node 24，彻底消除警告）
       # =====================================
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       # =====================================
       # 创建 data 目录
       # =====================================
@@ -39,22 +37,17 @@ jobs:
           import os
 
           try:
-              # 读取下载的原始 JSON
               with open("cls_raw.json", "r", encoding="utf-8") as f:
                   raw_data = json.load(f)
               
               items = []
-              # 兼容新版 API 的 .data.telegraphs 节点
               telegraphs = raw_data.get("data", {}).get("telegraphs", [])
               
-              # 如果新节点不存在，尝试兼容旧版的 .data.roll_data 节点
               if not telegraphs:
                   telegraphs = raw_data.get("data", {}).get("roll_data", [])
 
               for item in telegraphs:
-                  # 优先提取新版的 content 字段，其次是旧版的 title 字段
                   title = item.get("content") or item.get("title") or "无标题"
-                  # 截取前 100 个字防止作为标题过长
                   title = title[:100] + "..." if len(title) > 100 else title
                   
                   item_id = item.get("id")
@@ -62,7 +55,6 @@ jobs:
                   
                   items.append({"title": title, "url": url})
               
-              # 确保最终写入目标文件
               with open("data/cls.json", "w", encoding="utf-8") as f:
                   json.dump(items, f, ensure_ascii=False, indent=2)
                   
@@ -70,11 +62,9 @@ jobs:
 
           except Exception as e:
               print(f"解析出错: {e}")
-              # 打印部分原始数据方便你在 Actions 日志中排查
               if os.path.exists("cls_raw.json"):
                   with open("cls_raw.json", "r", encoding="utf-8") as f:
                       print("原始数据前500字:", f.read()[:500])
-              # 写入空数组防止后续的 Validate 步骤崩溃
               with open("data/cls.json", "w", encoding="utf-8") as f:
                   json.dump([], f)
           EOF
@@ -83,7 +73,7 @@ jobs:
       # =====================================
       - name: Fetch ITHome
         run: |
-          curl --silent --show-error --fail --max-time 20 -A "Mozilla/5.0" "https://www.ithome.com/rss/" -o ithome.xml
+          curl --silent --show-error --fail --max-time 20 -A "Mozilla/5.0" "https://ithome.com" -o ithome.xml
           python3 <<EOF
           import xml.etree.ElementTree as ET
           import json
@@ -102,15 +92,15 @@ jobs:
       # =====================================
       - name: Fetch Bilibili
         run: |
-          curl --silent --show-error --fail --max-time 20 -A "Mozilla/5.0" "https://api.bilibili.com/x/web-interface/popular" -o bilibili_raw.json
-          jq '.data.list | map({title: .title, url: ("https://www.bilibili.com/video/" + .bvid)})' bilibili_raw.json > data/bilibili.json
+          curl --silent --show-error --fail --max-time 20 -A "Mozilla/5.0" "https://bilibili.com" -o bilibili_raw.json
+          jq '.data.list | map({title: .title, url: ("https://bilibili.com" + .bvid)})' bilibili_raw.json > data/bilibili.json
       # =====================================
       # V2EX 热门
       # =====================================
       - name: Fetch V2EX
         run: |
-          curl --silent --show-error --fail --max-time 20 -A "Mozilla/5.0" "https://www.v2ex.com/api/topics/hot.json" -o v2ex_raw.json
-          jq 'map({title: .title, url: ("https://www.v2ex.com/t/" + (.id|tostring))})' v2ex_raw.json > data/v2ex.json
+          curl --silent --show-error --fail --max-time 20 -A "Mozilla/5.0" "https://v2ex.com" -o v2ex_raw.json
+          jq 'map({title: .title, url: ("https://v2ex.com" + (.id|tostring))})' v2ex_raw.json > data/v2ex.json
       # =====================================
       # JSON 校验
       # =====================================
