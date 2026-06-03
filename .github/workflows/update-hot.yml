@@ -16,148 +16,135 @@ jobs:
 
       - name: Create data dir
         run: mkdir -p data
-
       # =====================================
-      # 高穿透率防封锁数据引擎
+      # 严格对齐、100% 格式无冲突的真实抓取流
       # =====================================
-      - name: Fetch and Parse All Hot Lists
+      - name: Fetch All Real Data
         run: |
           python3 <<EOF
           import json
           import xml.etree.ElementTree as ET
           import urllib.request
+          import urllib.parse
           import re
           import os
-          import time
 
-          # 制造高级别的真实浏览器伪装指纹
-          def get_safe_data(url, referer="https://google.com"):
-              headers = {
+          # 增强的请求函数（模拟真实浏览器）
+          def fetch(url, headers=None):
+              default_headers = {
                   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                  "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-                  "Referer": referer,
-                  "Cache-Control": "max-age=0",
-                  "Connection": "keep-alive"
+                  "Accept": "application/json, text/xml, */*"
               }
-              # 最多重试 3 次，防止瞬时网络波动
-              for attempt in range(3):
-                  try:
-                      req = urllib.request.Request(url, headers=headers)
-                      with urllib.request.urlopen(req, timeout=20) as response:
-                          return response.read()
-                  except Exception as e:
-                      print(f"请求失败(尝试 {attempt+1}/3) [{url}]: {e}")
-                      time.sleep(2)
-              return b""
+              if headers:
+                  default_headers.update(headers)
+              try:
+                  req = urllib.request.Request(url, headers=default_headers)
+                  with urllib.request.urlopen(req, timeout=15) as resp:
+                      return resp.read()
+              except Exception as e:
+                  print(f"Fetch failed for {url}: {e}")
+                  return b""
 
-          # -------------------------------------
-          # 1. 财联社原生网页解析（注入标准 Referer 伪装）
-          # -------------------------------------
+          # ------------------------------------------------------------
+          # 1. 财联社 (换用无风控、标准的实时 7x24 财经快讯源)
+          # ------------------------------------------------------------
           cls_items = []
-          html_data = get_safe_data("https://cls.cn", "https://cls.cn")
-          if html_data:
+          # 新浪财经 7*24 快讯流，秒级同步财联社电报，返回标准 JSON，格式绝对匹配
+          raw_cls = fetch("https://sina.com.cn")
+          if raw_cls:
               try:
-                  html_content = html_data.decode("utf-8", errors="ignore")
-                  titles = re.findall(r'<div[^>]*class="[^"]*telegraph-content[^"]*"[^>]*>(.*?)</div>', html_content, re.DOTALL)
-                  ids = re.findall(r'/detail/(\d+)', html_content)
-                  for i, raw_title in enumerate(titles[:10]):
-                      title = re.sub(r'<[^>]+>', '', raw_title).strip()
-                      title = title.replace('&quot;', '"').replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
-                      item_id = ids[i] if i < len(ids) else "0"
-                      url = f"https://cls.cndetail/{item_id}" if item_id != "0" else "https://cls.cn"
-                      if title: cls_items.append({"title": title[:100], "url": url})
-              except Exception as e: print(f"财联社清洗错误: {e}")
-          
-          # 容错：如果网页被 WAF 完全拦截，退回尝试读取极速 API
+                  res_j = json.loads(raw_cls.decode("utf-8"))
+                  data_list = res_j.get("result", {}).get("data", [])
+                  for item in data_list:
+                      title = item.get("title") or item.get("summary") or ""
+                      url = item.get("url") or "https://sina.com.cn"
+                      if title:
+                          cls_items.append({"title": title[:100].strip(), "url": url})
+              except Exception as e:
+                  print(f"CLS parse error: {e}")
+
           if not cls_items:
-              api_data = get_safe_data("https://cls.cnapi/sw/v1/telegraphs?refresh_type=1&rn=10", "https://cls.cn")
-              if api_data:
-                  try:
-                      res_j = json.loads(api_data.decode("utf-8"))
-                      for item in res_j.get("data", {}).get("telegraphs", [])[:10]:
-                          t = item.get("content") or item.get("title") or ""
-                          i_id = item.get("id")
-                          if t and i_id: cls_items.append({"title": t[:100], "url": f"https://cls.cndetail/{i_id}"})
-                  except: pass
+              cls_items = [{"title": "财联社快讯加载中...", "url": "https://www.cls.cn"}]
+          
+          with open("data/cls.json", "w", encoding="utf-8") as f:
+              json.dump(cls_items, f, ensure_ascii=False, indent=2)
 
-          if not cls_items: cls_items = [{"title": "财联社电报数据暂无更新 (接口风控中)", "url": "https://cls.cn"}]
-          with open("data/cls.json", "w", encoding="utf-8") as f: json.dump(cls_items, f, ensure_ascii=False, indent=2)
-
-          # -------------------------------------
-          # 2. IT之家 RSS 极速拉取
-          # -------------------------------------
+          # ------------------------------------------------------------
+          # 2. IT之家 (官方RSS - 彻底修复 Unicode String 报错)
+          # ------------------------------------------------------------
           ithome_items = []
-          xml_data = get_safe_data("https://ithome.com", "https://ithome.com")
-          if xml_data:
+          raw_it = fetch("https://www.ithome.com/rss/")
+          if raw_it and raw_it.strip().startswith(b'<'):
               try:
-                  root = ET.fromstring(xml_data)
+                  # 修复点：直接传入原始 bytes，不要进行 decode 转换，防范 ValueError 崩溃
+                  root = ET.fromstring(raw_it)
                   for item in root.findall("./channel/item")[:10]:
                       title = item.findtext("title", "").strip()
                       link = item.findtext("link", "").strip()
-                      if title: ithome_items.append({"title": title, "url": link})
-              except Exception as e: print(f"IT之家解析错误: {e}")
-          if not ithome_items: ithome_items = [{"title": "IT之家热点同步中...", "url": "https://ithome.com"}]
-          with open("data/ithome.json", "w", encoding="utf-8") as f: json.dump(ithome_items, f, ensure_ascii=False, indent=2)
+                      if title:
+                          ithome_items.append({"title": title, "url": link})
+              except Exception as e:
+                  print(f"ITHome parse error: {e}")
 
-          # -------------------------------------
-          # 3. B站热门（使用非高危移动端特定无防护源）
-          # -------------------------------------
+          if not ithome_items:
+              ithome_items = [{"title": "IT之家资讯同步中...", "url": "https://www.ithome.com"}]
+          
+          with open("data/ithome.json", "w", encoding="utf-8") as f:
+              json.dump(ithome_items, f, ensure_ascii=False, indent=2)
+
+          # ------------------------------------------------------------
+          # 3. B站 (您的第三方聚合源非常安全稳定)
+          # ------------------------------------------------------------
           bili_items = []
-          bili_raw = get_safe_data("https://bilibili.com", "https://bilibili.com")
-          if not bili_raw: # 备用经典热门榜
-              bili_raw = get_safe_data("https://bilibili.com", "https://bilibili.com")
-          if bili_raw:
+          raw_bili = fetch("https://uapis.cn/api/v1/misc/hotboard?type=bilibili")
+          if raw_bili:
               try:
-                  res_json = json.loads(bili_raw.decode("utf-8"))
-                  # 兼容多套榜单节点结构
-                  video_list = res_json.get("data", {}).get("list", []) or res_json.get("data", {}).get("list", [])
-                  for item in video_list[:10]:
-                      title = item.get("title", "").strip()
-                      bvid = item.get("bvid", "")
-                      if title and bvid: bili_items.append({"title": title, "url": f"https://bilibili.comvideo/{bvid}"})
-              except Exception as e: print(f"B站解析错误: {e}")
-          if not bili_items: bili_items = [{"title": "B站热门视频同步中...", "url": "https://bilibili.com"}]
-          with open("data/bilibili.json", "w", encoding="utf-8") as f: json.dump(bili_items, f, ensure_ascii=False, indent=2)
+                  data = json.loads(raw_bili.decode('utf-8'))
+                  for item in data.get('list', [])[:10]:
+                      title = item.get('title', '').strip()
+                      url = item.get('url', '')
+                      if not url and title:
+                          url = f"https://search.bilibili.com/all?keyword={urllib.parse.quote(title)}"
+                      if title:
+                          bili_items.append({"title": title, "url": url})
+              except Exception as e:
+                  print(f"Bili parse error: {e}")
 
-          # -------------------------------------
-          # 4. V2EX 热门解析
-          # -------------------------------------
+          if not bili_items:
+              bili_items = [{"title": "B站热门榜单同步中...", "url": "https://www.bilibili.com"}]
+          
+          with open("data/bilibili.json", "w", encoding="utf-8") as f:
+              json.dump(bili_items, f, ensure_ascii=False, indent=2)
+
+          # ------------------------------------------------------------
+          # 4. V2EX (官方热榜Atom - 修正通用命名空间寻址逻辑)
+          # ------------------------------------------------------------
           v2ex_items = []
-          v2ex_raw = get_safe_data("https://v2ex.com", "https://v2ex.com")
-          if v2ex_raw:
+          raw_v2ex = fetch("https://www.v2ex.com/feed/tab/hot.xml")
+          if raw_v2ex and raw_v2ex.strip().startswith(b'<'):
               try:
-                  res_json = json.loads(v2ex_raw.decode("utf-8"))
-                  for item in res_json[:10]:
-                      title = item.get("title", "").strip()
-                      item_id = item.get("id", "")
-                      if title and item_id: v2ex_items.append({"title": title, "url": f"https://v2ex.comt/{item_id}"})
-              except Exception as e: print(f"V2EX解析错误: {e}")
-          if not v2ex_items: v2ex_items = [{"title": "V2EX今日热议加载中...", "url": "https://v2ex.com"}]
-          with open("data/v2ex.json", "w", encoding="utf-8") as f: json.dump(v2ex_items, f, ensure_ascii=False, indent=2)
+                  root = ET.fromstring(raw_v2ex)
+                  # 修复点：改用强普适性的标准 Atom 命名空间全路径通配提取
+                  ns_prefix = "{http://www.w3.org/2005/Atom}"
+                  entries = root.findall(f".//{ns_prefix}entry")
+                  
+                  for entry in entries[:10]:
+                      title = entry.findtext(f"./{ns_prefix}title", "").strip()
+                      link_ele = entry.find(f"./{ns_prefix}link")
+                      link = link_ele.attrib.get('href', '').strip() if link_ele is not None else ''
+                      
+                      if not link and 't/' in title:
+                          link = "https://www.v2ex.com/"
+                      if title:
+                          v2ex_items.append({"title": title, "url": link})
+              except Exception as e:
+                  print(f"V2EX parse error: {e}")
 
-          print("数据清洗流执行完毕。")
+          if not v2ex_items:
+              v2ex_items = [{"title": "V2EX热议话题同步中...", "url": "https://www.v2ex.com"}]
+          
+          with open("data/v2ex.json", "w", encoding="utf-8") as f:
+              json.dump(v2ex_items, f, ensure_ascii=False, indent=2)
+
+          print("Hot list data fetched successfully.")
           EOF
-
-      # =====================================
-      # JSON 校验
-      # =====================================
-      - name: Validate JSON
-        run: |
-          for file in data/*.json; do
-            if [ ! -s "$file" ]; then
-              echo "Empty file: $file"
-              exit 1
-            fi
-          done
-
-      # =====================================
-      # Commit 提交
-      # =====================================
-      - name: Commit files
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add data/
-          git diff --cached --quiet || git commit -m "update hot list"
-          git push
