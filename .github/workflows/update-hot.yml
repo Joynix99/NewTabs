@@ -28,18 +28,56 @@ jobs:
       # =====================================
       - name: Fetch CLS
         run: |
-          # 1. 抓取数据（使用完整的 User-Agent 避免被防火墙拦截）
+          # 1. 抓取数据（使用完整的真实浏览器 User-Agent）
           curl --silent --show-error --fail --max-time 20 \
             -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
             "https://cls.cn" -o cls_raw.json
           
-          # 2. 【调试步骤】打印前30行，确保接口确实返回了有效的 JSON
-          echo "=== CLS Raw Data Sample ==="
-          head -n 30 cls_raw.json || true
-          echo "==========================="
-          
-          # 3. 安全解析（增加空值容错）
-          jq '.data.telegraphs | if . == null then [] else map({title: (.content // .title // "无标题"), url: ("https://cls.cn" + (.id|tostring))}) end' cls_raw.json > data/cls.json
+          # 2. 使用 Python 脚本进行安全解析和字段降级兼容
+          python3 <<EOF
+          import json
+          import os
+
+          try:
+              # 读取下载的原始 JSON
+              with open("cls_raw.json", "r", encoding="utf-8") as f:
+                  raw_data = json.load(f)
+              
+              items = []
+              # 兼容新版 API 的 .data.telegraphs 节点
+              telegraphs = raw_data.get("data", {}).get("telegraphs", [])
+              
+              # 如果新节点不存在，尝试兼容旧版的 .data.roll_data 节点
+              if not telegraphs:
+                  telegraphs = raw_data.get("data", {}).get("roll_data", [])
+
+              for item in telegraphs:
+                  # 优先提取新版的 content 字段，其次是旧版的 title 字段
+                  title = item.get("content") or item.get("title") or "无标题"
+                  # 截取前 100 个字防止作为标题过长
+                  title = title[:100] + "..." if len(title) > 100 else title
+                  
+                  item_id = item.get("id")
+                  url = f"https://cls.cn{item_id}" if item_id else "https://cls.cn"
+                  
+                  items.append({"title": title, "url": url})
+              
+              # 确保最终写入目标文件
+              with open("data/cls.json", "w", encoding="utf-8") as f:
+                  json.dump(items, f, ensure_ascii=False, indent=2)
+                  
+              print(f"成功解析财联社数据，共 {len(items)} 条。")
+
+          except Exception as e:
+              print(f"解析出错: {e}")
+              # 打印部分原始数据方便你在 Actions 日志中排查
+              if os.path.exists("cls_raw.json"):
+                  with open("cls_raw.json", "r", encoding="utf-8") as f:
+                      print("原始数据前500字:", f.read()[:500])
+              # 写入空数组防止后续的 Validate 步骤崩溃
+              with open("data/cls.json", "w", encoding="utf-8") as f:
+                  json.dump([], f)
+          EOF
       # =====================================
       # IT之家
       # =====================================
