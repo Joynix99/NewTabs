@@ -28,10 +28,18 @@ jobs:
       # =====================================
       - name: Fetch CLS
         run: |
+          # 1. 抓取数据（使用完整的 User-Agent 避免被防火墙拦截）
           curl --silent --show-error --fail --max-time 20 \
             -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
             "https://cls.cn" -o cls_raw.json
-          jq '.data.telegraphs | map({title: .content, url: ("https://www.cls.cn/detail/" + (.id|tostring))})' cls_raw.json > data/cls.json
+          
+          # 2. 【调试步骤】打印前30行，确保接口确实返回了有效的 JSON
+          echo "=== CLS Raw Data Sample ==="
+          head -n 30 cls_raw.json || true
+          echo "==========================="
+          
+          # 3. 安全解析（增加空值容错）
+          jq '.data.telegraphs | if . == null then [] else map({title: (.content // .title // "无标题"), url: ("https://cls.cn" + (.id|tostring))}) end' cls_raw.json > data/cls.json
       # =====================================
       # IT之家
       # =====================================
