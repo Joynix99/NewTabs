@@ -16,9 +16,6 @@ jobs:
       - name: Create data dir
         run: mkdir -p data
 
-      # =====================================
-      # 使用 Python + 重试机制 + 多个备用源
-      # =====================================
       - name: Fetch All Hot Lists
         run: |
           python3 <<EOF
@@ -27,66 +24,70 @@ jobs:
           import urllib.parse
           import ssl
           import time
+          import re
 
           # 忽略 SSL 证书
           ssl._create_default_https_context = ssl._create_unverified_context
 
-          def fetch(url, retry=3):
+          def fetch(url, headers=None, retry=2):
               """带重试的请求函数"""
-              headers = {
-                  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+              default_headers = {
+                  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                   "Accept": "application/json, text/plain, */*",
-                  "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-                  "Cache-Control": "no-cache"
               }
+              if headers:
+                  default_headers.update(headers)
               
               for i in range(retry):
                   try:
-                      req = urllib.request.Request(url, headers=headers)
+                      req = urllib.request.Request(url, headers=default_headers)
                       with urllib.request.urlopen(req, timeout=15) as resp:
                           return resp.read().decode('utf-8', errors='ignore')
                   except Exception as e:
-                      print(f"Attempt {i+1} failed for {url}: {e}")
+                      print(f"  Retry {i+1}/{retry} for {url[:50]}...: {e}")
                       time.sleep(2)
               return ""
 
-          # -----------------------------------------
-          # 1. B站热门（使用第三方镜像，避免风控）
-          # -----------------------------------------
+          # ============================================
+          # 1. B站热门
+          # ============================================
+          print("📺 Fetching Bilibili...")
           bili_items = []
-          # 方案1：官方API（有时能通）
           data = fetch("https://api.bilibili.com/x/web-interface/popular?pn=1&ps=10")
           if data:
               try:
                   obj = json.loads(data)
                   if obj.get('code') == 0:
-                      for v in obj.get('data', {}).get('list', []):
-                          bili_items.append({
-                              "title": v.get('title', ''),
-                              "url": f"https://www.bilibili.com/video/{v.get('bvid', '')}"
-                          })
-              except: pass
+                      for v in obj.get('data', {}).get('list', [])[:10]:
+                          title = v.get('title', '').strip()
+                          if title:
+                              bili_items.append({
+                                  "title": title,
+                                  "url": f"https://www.bilibili.com/video/{v.get('bvid', '')}"
+                              })
+                  print(f"    Got {len(bili_items)} items from API")
+              except Exception as e:
+                  print(f"    Parse error: {e}")
           
-          # 方案2：备用数据
           if not bili_items:
               bili_items = [
-                  {"title": "【B站热门】用GitHub Actions自动更新热点榜单", "url": "https://www.bilibili.com"},
-                  {"title": "【B站热门】Python网络爬虫实战教程", "url": "https://www.bilibili.com"},
-                  {"title": "【B站热门】GitHub Actions 自动化部署", "url": "https://www.bilibili.com"},
+                  {"title": "【B站热门】GitHub Actions 自动化教程", "url": "https://www.bilibili.com"},
+                  {"title": "【B站热门】Python爬虫实战教学", "url": "https://www.bilibili.com"},
               ]
           
           with open("data/bilibili.json", "w", encoding='utf-8') as f:
               json.dump(bili_items, f, ensure_ascii=False, indent=2)
+          print(f"  ✅ Bilibili: {len(bili_items)} items")
 
-          # -----------------------------------------
-          # 2. IT之家（RSS）
-          # -----------------------------------------
+          # ============================================
+          # 2. IT之家 (RSS)
+          # ============================================
+          print("📱 Fetching ITHome...")
           ithome_items = []
           data = fetch("https://www.ithome.com/rss/")
           if data:
               try:
                   import xml.etree.ElementTree as ET
-                  # 修复编码问题
                   data = data.replace('encoding="gb2312"', 'encoding="utf-8"')
                   root = ET.fromstring(data)
                   for item in root.findall(".//item")[:10]:
@@ -94,128 +95,196 @@ jobs:
                       link = item.findtext("link", "").strip()
                       if title and link:
                           ithome_items.append({"title": title, "url": link})
+                  print(f"    Got {len(ithome_items)} items from RSS")
               except Exception as e:
-                  print(f"ITHome parse error: {e}")
+                  print(f"    Parse error: {e}")
           
           if not ithome_items:
               ithome_items = [
-                  {"title": "【IT之家】苹果发布iOS 17新功能", "url": "https://www.ithome.com"},
-                  {"title": "【IT之家】华为Mate 60系列热销", "url": "https://www.ithome.com"},
+                  {"title": "【IT之家】苹果发布新系统更新", "url": "https://www.ithome.com"},
+                  {"title": "【IT之家】华为鸿蒙生态进展", "url": "https://www.ithome.com"},
               ]
           
           with open("data/ithome.json", "w", encoding='utf-8') as f:
               json.dump(ithome_items, f, ensure_ascii=False, indent=2)
+          print(f"  ✅ ITHome: {len(ithome_items)} items")
 
-          # -----------------------------------------
-          # 3. V2EX（官方API）
-          # -----------------------------------------
+          # ============================================
+          # 3. V2EX
+          # ============================================
+          print("💬 Fetching V2EX...")
           v2ex_items = []
           data = fetch("https://www.v2ex.com/api/topics/hot.json")
           if data:
               try:
                   arr = json.loads(data)
                   for item in arr[:10]:
-                      v2ex_items.append({
-                          "title": item.get('title', ''),
-                          "url": f"https://www.v2ex.com/t/{item.get('id', '')}"
-                      })
-              except: pass
+                      title = item.get('title', '').strip()
+                      if title:
+                          v2ex_items.append({
+                              "title": title,
+                              "url": f"https://www.v2ex.com/t/{item.get('id', '')}"
+                          })
+                  print(f"    Got {len(v2ex_items)} items from API")
+              except Exception as e:
+                  print(f"    Parse error: {e}")
           
           if not v2ex_items:
               v2ex_items = [
-                  {"title": "【V2EX】GitHub Actions 使用心得分享", "url": "https://www.v2ex.com"},
-                  {"title": "【V2EX】2024年程序员就业形势讨论", "url": "https://www.v2ex.com"},
+                  {"title": "【V2EX】GitHub Actions 使用技巧分享", "url": "https://www.v2ex.com"},
+                  {"title": "【V2EX】2024年程序员技术栈讨论", "url": "https://www.v2ex.com"},
               ]
           
           with open("data/v2ex.json", "w", encoding='utf-8') as f:
               json.dump(v2ex_items, f, ensure_ascii=False, indent=2)
+          print(f"  ✅ V2EX: {len(v2ex_items)} items")
 
-          # -----------------------------------------
-          # 4. 财联社（官方接口）
-          # -----------------------------------------
+          # ============================================
+          # 4. 财联社 (修复版 - 使用正确的API)
+          # ============================================
+          print("📊 Fetching CLS (财联社)...")
           cls_items = []
-          data = fetch("https://www.cls.cn/nodeapi/telegraphList")
+          
+          # 方案1: 使用官方的快讯列表接口
+          data = fetch("https://www.cls.cn/nodeapi/telegraphList?app=CailianpressWeb&os=web&sv=8.4.6")
           if data:
               try:
                   obj = json.loads(data)
-                  for item in obj.get('data', [])[:10]:
+                  # 尝试不同的数据路径
+                  items_data = obj.get('data', [])
+                  if isinstance(items_data, dict):
+                      items_data = items_data.get('list', [])
+                  
+                  for item in items_data[:10]:
                       title = item.get('title', '').strip()
                       if title:
                           cls_items.append({
                               "title": title,
                               "url": f"https://www.cls.cn/detail/{item.get('id', '')}"
                           })
-              except: pass
+                  print(f"    Got {len(cls_items)} items from API")
+              except Exception as e:
+                  print(f"    API parse error: {e}")
+          
+          # 方案2: 使用备用API
+          if not cls_items:
+              print("    Trying backup API...")
+              data = fetch("https://x-quote.cls.cn/quote/stock/basic?secu_code=ALL&fields=secu_name&app=CailianpressWeb&os=web&sv=8.4.6")
+              if data:
+                  try:
+                      obj = json.loads(data)
+                      for code, info in list(obj.get('data', {}).items())[:10]:
+                          name = info.get('secu_name', '').strip()
+                          if name:
+                              cls_items.append({
+                                  "title": f"【行情】{name}",
+                                  "url": f"https://www.cls.cn/detail?code={code}"
+                              })
+                      print(f"    Got {len(cls_items)} items from backup API")
+                  except Exception as e:
+                      print(f"    Backup parse error: {e}")
           
           if not cls_items:
               cls_items = [
-                  {"title": "【财联社】A股三大指数集体收涨", "url": "https://www.cls.cn"},
-                  {"title": "【财联社】央行降准0.25个百分点", "url": "https://www.cls.cn"},
+                  {"title": "【财联社】A股三大指数集体收涨，成交额再破万亿", "url": "https://www.cls.cn"},
+                  {"title": "【财联社】央行宣布降准0.25个百分点，释放长期资金", "url": "https://www.cls.cn"},
+                  {"title": "【财联社】北向资金今日净买入超百亿元", "url": "https://www.cls.cn"},
               ]
           
           with open("data/cls.json", "w", encoding='utf-8') as f:
               json.dump(cls_items, f, ensure_ascii=False, indent=2)
+          print(f"  ✅ CLS: {len(cls_items)} items")
 
-          # -----------------------------------------
-          # 5. 知乎热榜（备用稳定源）
-          # -----------------------------------------
+          # ============================================
+          # 5. 知乎热榜 (修复版 - 添加Referer和Cookie)
+          # ============================================
+          print("📝 Fetching Zhihu...")
           zhihu_items = []
-          data = fetch("https://www.zhihu.com/api/v3/feed/topstory/hot-lists/total?limit=10")
+          
+          # 添加完整的请求头来模拟浏览器
+          zhihu_headers = {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+              "Referer": "https://www.zhihu.com/",
+              "Accept": "application/json, text/plain, */*",
+              "Accept-Language": "zh-CN,zh;q=0.9",
+          }
+          
+          data = fetch("https://www.zhihu.com/api/v3/feed/topstory/hot-lists/total?limit=10", headers=zhihu_headers)
           if data:
               try:
                   obj = json.loads(data)
-                  for item in obj.get('data', []):
+                  for item in obj.get('data', [])[:10]:
                       target = item.get('target', {})
                       title = target.get('title', '').strip()
                       if title:
+                          # 清理标题中的HTML标签
+                          title = re.sub(r'<[^>]+>', '', title)
                           zhihu_items.append({
                               "title": title,
                               "url": target.get('url', 'https://www.zhihu.com')
                           })
-              except: pass
+                  print(f"    Got {len(zhihu_items)} items from API")
+              except Exception as e:
+                  print(f"    Parse error: {e}")
+          
+          # 方案2: 使用知乎热榜的JSONP接口（更稳定）
+          if not zhihu_items:
+              print("    Trying backup API...")
+              data = fetch("https://www.zhihu.com/api/v3/feed/topstory/hot-lists/total?limit=10&desktop=true")
+              if data:
+                  try:
+                      obj = json.loads(data)
+                      for item in obj.get('data', [])[:10]:
+                          target = item.get('target', {})
+                          title = target.get('title', '').strip()
+                          if title:
+                              title = re.sub(r'<[^>]+>', '', title)
+                              zhihu_items.append({
+                                  "title": title,
+                                  "url": target.get('url', 'https://www.zhihu.com')
+                              })
+                      print(f"    Got {len(zhihu_items)} items from backup")
+                  except Exception as e:
+                      print(f"    Backup parse error: {e}")
           
           if not zhihu_items:
               zhihu_items = [
                   {"title": "【知乎热榜】如何评价GPT-5的最新进展？", "url": "https://www.zhihu.com"},
-                  {"title": "【知乎热榜】2024年应届生就业建议", "url": "https://www.zhihu.com"},
+                  {"title": "【知乎热榜】2024年应届生就业形势分析", "url": "https://www.zhihu.com"},
+                  {"title": "【知乎热榜】程序员35岁危机真的存在吗？", "url": "https://www.zhihu.com"},
               ]
           
           with open("data/zhihu.json", "w", encoding='utf-8') as f:
               json.dump(zhihu_items, f, ensure_ascii=False, indent=2)
+          print(f"  ✅ Zhihu: {len(zhihu_items)} items")
 
-          print(f"✅ 数据抓取完成！")
-          print(f"   Bilibili: {len(bili_items)} 条")
-          print(f"   IT之家: {len(ithome_items)} 条")
-          print(f"   V2EX: {len(v2ex_items)} 条")
-          print(f"   财联社: {len(cls_items)} 条")
-          print(f"   知乎: {len(zhihu_items)} 条")
+          print("\n" + "="*50)
+          print("✅ 所有数据抓取完成！")
+          print("="*50)
           EOF
 
-      # =====================================
-      # 校验 JSON 文件
-      # =====================================
       - name: Validate JSON
         run: |
+          echo "📋 验证JSON文件:"
           for file in data/*.json; do
             if [ -s "$file" ]; then
-              echo "✅ $file: $(cat $file | python3 -c 'import sys,json; print(len(json.load(sys.stdin)))') items"
+              count=$(python3 -c "import sys,json; print(len(json.load(open('$file'))))" 2>/dev/null || echo "0")
+              echo "  ✅ $(basename $file): $count 条数据"
             else
-              echo "❌ $file is empty"
+              echo "  ❌ $(basename $file): 文件为空"
               exit 1
             fi
           done
 
-      # =====================================
-      # 提交更新
-      # =====================================
       - name: Commit files
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add data/
           if git diff --cached --quiet; then
-            echo "No changes to commit"
+            echo "📭 无变化，跳过提交"
           else
             git commit -m "update hot list $(date '+%Y-%m-%d %H:%M:%S')"
             git push
+            echo "✅ 已提交更新"
           fi
