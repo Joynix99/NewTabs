@@ -28,8 +28,10 @@ jobs:
       # =====================================
       - name: Fetch CLS
         run: |
-          curl --silent --show-error --fail --max-time 20 -A "Mozilla/5.0" "https://www.cls.cn/nodeapi/updateTelegraphList?lastTime=0&pageSize=10" -o cls_raw.json
-          jq '.data.roll_data | map({title: .title, url: ("https://www.cls.cn/detail/" + (.id|tostring))})' cls_raw.json > data/cls.json
+          curl --silent --show-error --fail --max-time 20 \
+            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+            "https://cls.cn" -o cls_raw.json
+          jq '.data.telegraphs | map({title: .content, url: ("https://www.cls.cn/detail/" + (.id|tostring))})' cls_raw.json > data/cls.json
       # =====================================
       # IT之家
       # =====================================
