@@ -1,7 +1,7 @@
 name: Update Hot List
 on:
   schedule:
-    # 每3小时更新
+    # 每3小时更新一次
     - cron: "0 */3 * * *"
   workflow_dispatch:
 jobs:
@@ -16,135 +16,131 @@ jobs:
 
       - name: Create data dir
         run: mkdir -p data
+
       # =====================================
-      # 严格对齐、100% 格式无冲突的真实抓取流
+      # 1. B站热门（官方API）
       # =====================================
-      - name: Fetch All Real Data
+      - name: Fetch Bilibili
         run: |
+          curl --silent --show-error --fail --max-time 20 \
+            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+            "https://api.bilibili.com/x/web-interface/popular" -o bilibili_raw.json
+          jq '.data.list | map({title: .title, url: ("https://www.bilibili.com/video/" + .bvid)})' \
+            bilibili_raw.json > data/bilibili.json
+
+      # =====================================
+      # 2. IT之家（官方RSS）
+      # =====================================
+      - name: Fetch ITHome
+        run: |
+          curl --silent --show-error --fail --max-time 20 \
+            -A "Mozilla/5.0" "https://www.ithome.com/rss/" -o ithome.xml
           python3 <<EOF
-          import json
           import xml.etree.ElementTree as ET
-          import urllib.request
-          import urllib.parse
-          import re
-          import os
-
-          # 增强的请求函数（模拟真实浏览器）
-          def fetch(url, headers=None):
-              default_headers = {
-                  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                  "Accept": "application/json, text/xml, */*"
-              }
-              if headers:
-                  default_headers.update(headers)
-              try:
-                  req = urllib.request.Request(url, headers=default_headers)
-                  with urllib.request.urlopen(req, timeout=15) as resp:
-                      return resp.read()
-              except Exception as e:
-                  print(f"Fetch failed for {url}: {e}")
-                  return b""
-
-          # ------------------------------------------------------------
-          # 1. 财联社 (换用无风控、标准的实时 7x24 财经快讯源)
-          # ------------------------------------------------------------
-          cls_items = []
-          # 新浪财经 7*24 快讯流，秒级同步财联社电报，返回标准 JSON，格式绝对匹配
-          raw_cls = fetch("https://sina.com.cn")
-          if raw_cls:
-              try:
-                  res_j = json.loads(raw_cls.decode("utf-8"))
-                  data_list = res_j.get("result", {}).get("data", [])
-                  for item in data_list:
-                      title = item.get("title") or item.get("summary") or ""
-                      url = item.get("url") or "https://sina.com.cn"
-                      if title:
-                          cls_items.append({"title": title[:100].strip(), "url": url})
-              except Exception as e:
-                  print(f"CLS parse error: {e}")
-
-          if not cls_items:
-              cls_items = [{"title": "财联社快讯加载中...", "url": "https://www.cls.cn"}]
+          import json
           
-          with open("data/cls.json", "w", encoding="utf-8") as f:
-              json.dump(cls_items, f, ensure_ascii=False, indent=2)
-
-          # ------------------------------------------------------------
-          # 2. IT之家 (官方RSS - 彻底修复 Unicode String 报错)
-          # ------------------------------------------------------------
-          ithome_items = []
-          raw_it = fetch("https://www.ithome.com/rss/")
-          if raw_it and raw_it.strip().startswith(b'<'):
-              try:
-                  # 修复点：直接传入原始 bytes，不要进行 decode 转换，防范 ValueError 崩溃
-                  root = ET.fromstring(raw_it)
-                  for item in root.findall("./channel/item")[:10]:
-                      title = item.findtext("title", "").strip()
-                      link = item.findtext("link", "").strip()
-                      if title:
-                          ithome_items.append({"title": title, "url": link})
-              except Exception as e:
-                  print(f"ITHome parse error: {e}")
-
-          if not ithome_items:
-              ithome_items = [{"title": "IT之家资讯同步中...", "url": "https://www.ithome.com"}]
+          tree = ET.parse("ithome.xml")
+          root = tree.getroot()
+          items = []
+          for item in root.findall("./channel/item")[:10]:
+              title = item.findtext("title", "")
+              link = item.findtext("link", "")
+              if title and link:
+                  items.append({"title": title, "url": link})
           
           with open("data/ithome.json", "w", encoding="utf-8") as f:
-              json.dump(ithome_items, f, ensure_ascii=False, indent=2)
-
-          # ------------------------------------------------------------
-          # 3. B站 (您的第三方聚合源非常安全稳定)
-          # ------------------------------------------------------------
-          bili_items = []
-          raw_bili = fetch("https://uapis.cn/api/v1/misc/hotboard?type=bilibili")
-          if raw_bili:
-              try:
-                  data = json.loads(raw_bili.decode('utf-8'))
-                  for item in data.get('list', [])[:10]:
-                      title = item.get('title', '').strip()
-                      url = item.get('url', '')
-                      if not url and title:
-                          url = f"https://search.bilibili.com/all?keyword={urllib.parse.quote(title)}"
-                      if title:
-                          bili_items.append({"title": title, "url": url})
-              except Exception as e:
-                  print(f"Bili parse error: {e}")
-
-          if not bili_items:
-              bili_items = [{"title": "B站热门榜单同步中...", "url": "https://www.bilibili.com"}]
-          
-          with open("data/bilibili.json", "w", encoding="utf-8") as f:
-              json.dump(bili_items, f, ensure_ascii=False, indent=2)
-
-          # ------------------------------------------------------------
-          # 4. V2EX (官方热榜Atom - 修正通用命名空间寻址逻辑)
-          # ------------------------------------------------------------
-          v2ex_items = []
-          raw_v2ex = fetch("https://www.v2ex.com/feed/tab/hot.xml")
-          if raw_v2ex and raw_v2ex.strip().startswith(b'<'):
-              try:
-                  root = ET.fromstring(raw_v2ex)
-                  # 修复点：改用强普适性的标准 Atom 命名空间全路径通配提取
-                  ns_prefix = "{http://www.w3.org/2005/Atom}"
-                  entries = root.findall(f".//{ns_prefix}entry")
-                  
-                  for entry in entries[:10]:
-                      title = entry.findtext(f"./{ns_prefix}title", "").strip()
-                      link_ele = entry.find(f"./{ns_prefix}link")
-                      link = link_ele.attrib.get('href', '').strip() if link_ele is not None else ''
-                      
-                      if not link and 't/' in title:
-                          link = "https://www.v2ex.com/"
-                      if title:
-                          v2ex_items.append({"title": title, "url": link})
-              except Exception as e:
-                  print(f"V2EX parse error: {e}")
-
-          if not v2ex_items:
-              v2ex_items = [{"title": "V2EX热议话题同步中...", "url": "https://www.v2ex.com"}]
-          
-          with open("data/v2ex.json", "w", encoding="utf-8") as f:
-              json.dump(v2ex_items, f, ensure_ascii=False, indent=2)
-
-          print("Hot list data fetched successfully.")
+              json.dump(items, f, ensure_ascii=False, indent=2)
           EOF
+
+      # =====================================
+      # 3. V2EX热门（官方API）
+      # =====================================
+      - name: Fetch V2EX
+        run: |
+          curl --silent --show-error --fail --max-time 20 \
+            "https://www.v2ex.com/api/topics/hot.json" -o v2ex_raw.json
+          jq 'map({title: .title, url: ("https://www.v2ex.com/t/" + (.id|tostring))})' \
+            v2ex_raw.json > data/v2ex.json
+
+      # =====================================
+      # 4. 财联社（官方快讯接口）
+      # =====================================
+      - name: Fetch CLS
+        run: |
+          curl --silent --show-error --fail --max-time 20 \
+            -A "Mozilla/5.0" \
+            "https://www.cls.cn/nodeapi/telegraphList" -o cls_raw.json
+          python3 <<EOF
+          import json
+          
+          with open("cls_raw.json", "r") as f:
+              data = json.load(f)
+          
+          items = []
+          for item in data.get("data", [])[:10]:
+              title = item.get("title", "")
+              if title:
+                  items.append({
+                      "title": title,
+                      "url": f"https://www.cls.cn/detail/{item.get('id', '')}"
+                  })
+          
+          with open("data/cls.json", "w", encoding="utf-8") as f:
+              json.dump(items, f, ensure_ascii=False, indent=2)
+          EOF
+
+      # =====================================
+      # 5. HackerNews（备用稳定源）
+      # =====================================
+      - name: Fetch HackerNews
+        run: |
+          curl --silent --show-error --fail --max-time 20 \
+            "https://hacker-news.firebaseio.com/v0/topstories.json" -o hn_ids.json
+          python3 <<EOF
+          import json
+          import urllib.request
+          
+          with open("hn_ids.json", "r") as f:
+              ids = json.load(f)[:10]
+          
+          items = []
+          for story_id in ids:
+              try:
+                  url = f"https://hacker-news.firebaseio.com/v0/item/{story_id}.json"
+                  req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                  with urllib.request.urlopen(req, timeout=10) as resp:
+                      data = json.loads(resp.read())
+                      items.append({
+                          "title": data.get("title", "No title"),
+                          "url": data.get("url", f"https://news.ycombinator.com/item?id={story_id}")
+                      })
+              except Exception as e:
+                  print(f"Error fetching {story_id}: {e}")
+          
+          with open("data/hackernews.json", "w", encoding="utf-8") as f:
+              json.dump(items, f, ensure_ascii=False, indent=2)
+          EOF
+
+      # =====================================
+      # JSON 校验
+      # =====================================
+      - name: Validate JSON
+        run: |
+          for file in data/*.json; do
+            if [ ! -s "$file" ]; then
+              echo "❌ Empty file: $file"
+              exit 1
+            fi
+            echo "✅ $file: $(cat $file | jq 'length') items"
+          done
+
+      # =====================================
+      # Commit 提交
+      # =====================================
+      - name: Commit files
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add data/
+          git diff --cached --quiet || git commit -m "update hot list $(date '+%Y-%m-%d %H:%M:%S')"
+          git push
